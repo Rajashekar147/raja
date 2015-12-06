@@ -1,0 +1,810 @@
+// required header files
+#include <iostream>
+#include <limits.h>
+#include <cmath>
+#include <fstream>
+#include <ctime>
+#include <vector>
+#include <set>
+#include <algorithm>
+#include <utility>
+
+// path for input text file
+#define PATH ".\\input.txt"
+#define OPATH ".\\output.txt"
+
+using namespace std;
+
+
+class population {
+    public:
+        // variables
+        int ac; // antecedent - consequent
+        int pn; // positive - negative
+        int lb; // lower bound
+        int ub; // upper bound
+
+        struct _date{
+            int day;
+            int month;
+            int year;
+        }date; // for trending values
+
+        // constructor
+        population(){
+            ac = pn = lb = ub = -1;
+            //date = "";
+        }
+
+};
+
+// required enumerations
+enum _ac_values { notInvolved = -1, antecedent, consequent };
+enum _pn_values { negative = 0, positive};
+
+// global variables...
+// *****INPUT*****
+int N; // population size
+int nTrials; // number of evaluations
+int currentTrial = 0; // current Evaluation
+int m; // number of objectives
+double Pmut; // probability of mutation
+vector<vector<int> > lambda; // set of N weight vectors
+vector<vector<int> > B; // neighborhood
+int T; // number of weight vectors in the neighborhood of each weight vector
+double delta; // the probability that parent solutions are selected from the neighborhood
+int nr; // the maximal number of solutions replaced by each child solution
+int gamma; // factor of amplitude for each attribute of datasets
+double alpha; // difference threshold
+vector<population> initialPopulation; // initial population
+int numTrans; // number of transactions
+vector<vector<population> > Transactions; // transactions
+vector<double> z; // vector to store maximum values of each objective.
+ofstream fout(OPATH); // for output.
+
+// *****OUTPUT*****
+vector<vector<int> > EP; // external population
+
+void initialize();
+double getEucledianDistance(vector<int> , vector<int> );
+int getMax(vector<pair<double, int> >);
+void getInput();
+double support(vector<int>);
+int getCount(vector<int> );
+double confidence(vector<int>);
+double CF(vector<int>);
+double performance(vector<int>);
+double lift(vector<int>);
+double interestingness(vector<int>);
+int attributes(vector<int>);
+double comprehensibility(vector<int>);
+void update();
+pair<population, population> crossover(int , int);
+void mutation(population& , population&);
+double netConf(vector<int> );
+population cross1(population, population);
+population cross2(population, population);
+void dispPop();
+void updateEP();
+double g(population, int);
+void removeRedundanceFromEP();
+void removeRedundance();
+
+int main()
+{
+    // input
+    fout<<"Input : \n";
+    getInput();
+    // step1
+    fout<<"\n\n           Initialize : \n";
+    initialize();
+    //step2
+    fout<<"\n\n           Update : \n";
+    update();
+    fout<<endl;
+    // step 4
+    removeRedundanceFromEP();
+    // step 7
+    removeRedundance();
+
+    // display External Population
+    fout<<"External Population : \n";
+    for(int i=0;i<EP.size();i++){
+        for(int j=0;j<EP[i].size();j++){
+            fout<<EP[i][j]<<" ";
+        }
+        fout<<endl;
+    }
+
+    fout<<"\n             eop\n";
+    return 0;
+}
+
+// This function obtains the input
+void getInput(){
+
+    ifstream fin(PATH);
+
+    fin >> N;
+    fout<<N<<endl;
+
+    fin >> nTrials;
+    fout<<nTrials<<endl;
+
+    fin >> m;
+    fout<<m<<endl;
+
+    fin >> Pmut;
+    fout<<Pmut<<endl;
+
+    string s;
+    getline(fin,s,'\n');
+
+    for(int i=0;i<N;i++){
+        lambda.push_back(vector<int>());
+        string line;
+        getline(fin, line, '\n');
+        fout<<line<<endl;
+        int val = 0;
+
+        for(int i=0;i<line.size();i++){
+            if(line[i] == ' '){
+                lambda[lambda.size()-1].push_back(val);
+                val = 0;
+            }
+            else{
+                val = val * 10 + (line[i]-'0');
+            }
+        }
+
+        lambda[lambda.size()-1].push_back(val);
+    }
+
+    fin >> T;
+    fout<<T<<endl;
+
+    fin >> delta;
+    fout<<delta<<endl;
+
+    fin >> nr;
+    fout<<nr<<endl;
+
+    fin >> gamma;
+    fout<<gamma<<endl;
+
+    fin >> alpha;
+    fout<<alpha<<endl;
+
+    for(int i=0;i<N;i++){
+        population ip;
+        fin >> ip.ac >> ip.pn >> ip.lb >> ip.ub;
+        initialPopulation.push_back(ip);
+        fout<<initialPopulation[initialPopulation.size()-1].ac<<" "<<initialPopulation[initialPopulation.size()-1].pn<<" "
+            <<initialPopulation[initialPopulation.size()-1].lb<<" "<<initialPopulation[initialPopulation.size()-1].ub<<endl;
+    }
+
+    fin >> numTrans;
+    fout<<numTrans<<endl;
+
+
+    for(int i=0;i<numTrans;i++){
+        Transactions.push_back(vector<population>());
+        for(int j=0;j<N;++j){
+            Transactions[i].push_back(population());
+            fin >> Transactions[i][j].ac >> Transactions[i][j].pn >> Transactions[i][j].lb >> Transactions[i][j].ub;
+            fout<<Transactions[i][j].ac <<" "<< Transactions[i][j].pn <<" "<< Transactions[i][j].lb <<" "<< Transactions[i][j].ub<<":";
+        }
+        fout<<endl;
+    }
+
+    for(int i=0;i<numTrans;i++){
+        for(int j=0;j<1;++j){
+            fin >> Transactions[i][j].date.day >> Transactions[i][j].date.month >> Transactions[i][j].date.year;
+            fout << Transactions[i][j].date.day << Transactions[i][j].date.month << Transactions[i][j].date.year << endl;
+        }
+    }
+
+}
+
+// Displays the population
+void dispPop(){
+    for(int i=0;i<numTrans;i++){
+            for(int j=0;j<N;++j){
+                fout<<Transactions[i][j].ac <<" "<< Transactions[i][j].pn <<" "<< Transactions[i][j].lb <<" "<< Transactions[i][j].ub<<":";
+            }
+            fout<<endl;
+        }
+}
+
+// This is a helper function to compute the Eucledian distances between weight vectors.
+double getEucledianDistance(vector<int> v1, vector<int> v2){
+    double ans = 0;
+
+    for(int i=0;i<v1.size();i++){
+        ans = ans + ((v1[i] - v2[i])*(v1[i] - v2[i]));
+    }
+
+    return sqrt(ans);
+}
+
+// Helper function to return maximum index present in a vector
+int getMax(vector<pair<double, int> > v){
+    double max = INT_MIN;
+    int index = -1;
+
+    for(int i=0;i<v.size();i++){
+        if(max < v[i].first){
+            max = v[i].first;
+            index = i;
+        }
+    }
+
+    return index;
+}
+
+// Returns the count certain itemset in the transactions.
+int getCount(vector<int> x){
+    int count = 0;
+
+    for(int i=0;i<Transactions.size();i++){
+        int isPresent = 1;
+        for(int j=0;j<x.size();j++){
+            isPresent &= abs(Transactions[i][x[j]].ac);
+        }
+        count += isPresent;
+    }
+
+    return count;
+}
+
+// Returns the number of attributes
+int attributes(vector<int> x){
+    return getCount(x);
+}
+
+// Applies the Mutation Operator
+void mutation(population &first, population &second){
+    srand((unsigned)time(NULL));
+    int r = rand()%4, c = rand()%31;
+    switch(r){
+        case 0:
+            first.ac++;
+            first.ac = (first.ac + 1)%3;
+            first.ac--;
+
+            second.ac++;
+            second.ac = (first.ac + 1)%3;
+            second.ac--;
+
+            break;
+        case 1:
+            first.pn ^= 1;
+
+            second.pn ^= 1;
+            break;
+        case 2:
+            first.lb ^= (1<<c);
+
+            second.lb ^= (1<<c);
+            break;
+        case 3:
+            first.ub ^= (1<<c);
+
+            second.ub ^= (1<<c);
+            break;
+    }
+
+}
+
+// Calculates and returns the "comprehensibility" value
+double comprehensibility(vector<int> x){
+    return 1.0/((double)attributes(x));
+}
+
+// Calculates and returns the "lift" value
+double lift(vector<int> v){
+    double den = 1.0;
+
+    for(int i=0;i<v.size();i++){
+        vector<int> c;
+        c.push_back(v[i]);
+        den *= support(c);
+        c.clear();
+    }
+
+    return support(v)/den;
+}
+
+// Calculates and returns the "interestingness" value
+double interestingness(vector<int> v){
+    return lift(v);
+}
+
+// Calculates and returns the "support" value
+double support(vector<int> x){
+    return ((double)getCount(x))/Transactions.size();
+}
+
+// Calculates and returns the "Confidence" value
+double confidence(vector<int> vec){
+    vector<int> p;
+    p.push_back(vec[0]);
+    return support(vec)/support(p);
+}
+
+// Calculates and returns the "netconf" value
+double netConf(vector<int> vec){
+    vector<int> p;
+    p.push_back(vec[0]);
+    double supXY = support(vec);
+    double supX = support(p);
+
+    if(supX == 0 || supX == 1)
+        return 0;
+
+    p.clear();
+    p.push_back(vec[1]);
+    double supY = support(p);
+    return (supXY - supX * supY)/(supX * (1 - supX));
+}
+
+// Calculates and returns the "Certainity Factor" value
+double CF(vector<int> x){
+    vector<int> y;
+    y.push_back(x[1]);
+    double con = confidence(x);
+    double sup = support(y);
+
+    if(con > sup){
+        return (con - sup)/(1-sup);
+    } else if(con < sup){
+        return (con - sup)/sup;
+    }
+
+    return 0;
+}
+
+// Calculates and returns the "Performance" value
+double performance(vector<int> v){
+    return support(v) * CF(v);
+}
+
+// Helper function for "crossover"
+population cross1(population first, population second){
+    population result;
+
+    result.ac = ((first.ac + 1) ^ (second.ac + 1))%3;
+    result.ac--;
+
+    result.pn = (first.pn ^ second.pn)%2;
+
+    result.lb = first.lb ^ second.lb;
+
+    result.ub = first.ub ^ second.ub;
+
+    return result;
+}
+
+// Helper function for "crossover"
+population cross2(population first, population second){
+    population result;
+
+    result.ac = ((first.ac + 1) & (second.ac + 1))%3;
+    result.ac--;
+
+    result.pn = (first.pn & second.pn)%2;
+
+    result.lb = first.lb & second.lb;
+
+    result.ub = first.ub & second.ub;
+
+    return result;
+}
+
+// Applies the "Crossover" operator
+pair<population, population> crossover(int r1, int r2){
+    int x1 = r1 % numTrans;
+    int y1 = r2 % N;
+    int x2 = r2 % numTrans;
+    int y2 = r1 % N;
+    population first = cross1(Transactions[x1][y1], Transactions[x2][y2]);
+    population second = cross2(Transactions[x1][y1], Transactions[x2][y2]);
+
+    return make_pair( first, second );
+}
+
+// Step 1: Initialize function
+void initialize(){
+
+    for(int i=0;i<lambda.size();i++){
+
+        B.push_back(vector<int>());
+        int j = 0;
+        vector<pair<double, int> > nearest;
+
+        for(;j<=T;j++){
+            double EucledianDistance = getEucledianDistance(lambda[i], lambda[j]);
+            nearest.push_back(make_pair(EucledianDistance, j));
+        }
+
+        for(;j<lambda.size();j++){
+            double EucledianDistance = getEucledianDistance(lambda[i], lambda[j]);
+            int max = getMax(nearest);
+            if(nearest[max].first > EucledianDistance){
+                nearest.erase(nearest.begin() + max);
+                nearest.push_back(make_pair(EucledianDistance, j));
+            }
+        }
+
+        for(j=0;j<nearest.size();j++){
+            if(nearest[j].second != i)
+                B[B.size()-1].push_back(nearest[j].second);
+        }
+    }
+
+    for(int i=0;i<B.size();i++){
+        for(int j=0;j<B[i].size();j++)
+            fout<<B[i][j]<<" ";
+        fout<<endl;
+    }
+
+    double _max = INT_MIN;
+
+    fout<<"Interestingness\n";
+
+    for(int i=0;i<N;i++){
+        for(int j=i+1;j<N;j++){
+            vector<int> vc;
+            vc.push_back(i);
+            vc.push_back(j);
+            if(_max < interestingness(vc))
+                _max = interestingness(vc);
+            fout<<interestingness(vc)<<endl;
+            vc.clear();
+        }
+    }
+
+    z.push_back(_max);
+    _max = INT_MIN;
+
+    fout<<"performances\n";
+
+    for(int i=0;i<N;i++){
+        for(int j=i+1;j<N;j++){
+            vector<int> vc;
+            vc.push_back(i);
+            vc.push_back(j);
+            if(_max < performance(vc))
+                _max = performance(vc);
+            fout<<performance(vc)<<endl;
+            vc.clear();
+        }
+    }
+
+    z.push_back(_max);
+    _max = INT_MIN;
+
+    fout<<"comprehensibility\n";
+
+    for(int i=0;i<N;i++){
+        for(int j=i+1;j<N;j++){
+            vector<int> vc;
+            vc.push_back(i);
+            vc.push_back(j);
+            if(_max < comprehensibility(vc))
+                _max = comprehensibility(vc);
+            fout<<comprehensibility(vc)<<endl;
+            vc.clear();
+        }
+    }
+
+    z.push_back(_max);
+
+    fout<<"z\n";
+
+    for(int i=0;i<3;i++)fout<<z[i]<<endl;
+
+    for(int i=1;i<=N;i++){
+        EP.push_back(vector<int>());
+        EP[EP.size()-1].push_back(i);
+    }
+
+}
+
+// Step 2 : Update Function
+void update(){
+
+    srand((unsigned)time(NULL));
+
+    for(int i=1;i<=N;i++){
+
+        int a = rand(),b = rand(),_ = rand(),l = rand();
+        double rand;
+        if(a>b)rand = ((double)b)/a;
+        else rand = ((double)a)/b;
+        fout<<rand<<endl;
+        vector<int> P;
+
+        if(rand < delta){
+            P = B[i-1];
+        } else{
+            for(int j = 1;j <= N; j++)
+                P.push_back(j);
+        }
+
+        for(int j=0;j<P.size();j++){
+            fout<<P[j]<<":";
+        }
+
+        fout<<endl;
+ A:
+        // Part (b)
+        int r1 = i;
+        int r2 = P[_%P.size()];
+
+        pair<population, population> offSpring = crossover(r1, r2);
+
+        fout<<"After Crossover : \n";
+        fout << "y1 = " << offSpring.first.ac << " " << offSpring.first.pn << " " << offSpring.first.lb << " " << offSpring.first.ub << endl;
+        fout << "y2 = " << offSpring.second.ac << " " << offSpring.second.pn << " " << offSpring.second.lb << " " << offSpring.second.ub << endl;
+
+        mutation(offSpring.first, offSpring.second);
+
+        fout<<"After Mutation : \n";
+        fout << "y1 = " << offSpring.first.ac << " " << offSpring.first.pn << " " << offSpring.first.lb << " " << offSpring.first.ub << endl;
+        fout << "y2 = " << offSpring.second.ac << " " << offSpring.second.pn << " " << offSpring.second.lb << " " << offSpring.second.ub << endl;
+
+        Transactions[r1 % numTrans][r2 % N] = offSpring.first;
+        Transactions[r2 % numTrans][r1 % N] = offSpring.second;
+
+        dispPop();
+
+        // Part (c)
+        z.clear();
+
+        double _max = INT_MIN;
+
+      //  fout<<"Interestingness\n";
+
+        for(int i=0;i<N;i++){
+            for(int j=i+1;j<N;j++){
+                vector<int> vc;
+                vc.push_back(i);
+                vc.push_back(j);
+                if(_max < interestingness(vc))
+                    _max = interestingness(vc);
+        //        fout<<interestingness(vc)<<endl;
+                vc.clear();
+            }
+        }
+
+        z.push_back(_max);
+        _max = INT_MIN;
+
+       // fout<<"performances\n";
+
+        for(int i=0;i<N;i++){
+            for(int j=i+1;j<N;j++){
+                vector<int> vc;
+                vc.push_back(i);
+                vc.push_back(j);
+                if(_max < performance(vc))
+                    _max = performance(vc);
+         //       fout<<performance(vc)<<endl;
+                vc.clear();
+            }
+        }
+
+        z.push_back(_max);
+        _max = INT_MIN;
+
+       //fout<<"comprehensibility\n";
+
+        for(int i=0;i<N;i++){
+            for(int j=i+1;j<N;j++){
+                vector<int> vc;
+                vc.push_back(i);
+                vc.push_back(j);
+                if(_max < comprehensibility(vc))
+                    _max = comprehensibility(vc);
+           //     fout<<comprehensibility(vc)<<endl;
+                vc.clear();
+            }
+        }
+
+        z.push_back(_max);
+
+       // fout<<"z\n";
+
+     //   for(int i=0;i<3;i++)fout<<z[i]<<endl;
+
+        int c = 0,temp = l % P.size();
+        if(c>=nr || P.size() == 0){
+            updateEP();
+            return;
+        }
+        else{
+            l = P[temp];
+        }
+        double g0 = g(Transactions[r1 % numTrans][r2 % N], l);
+        double g1 = g(Transactions[r2 % numTrans][r1 % N], l);
+        double gx = g(Transactions[r1 % numTrans][l % N], l);
+
+        if(g0 <= gx){
+            Transactions[r1 % numTrans][l % N] = Transactions[r1 % numTrans][r2 % N];
+            c++;
+        }
+        if(g1 <= gx){
+            Transactions[r1 % numTrans][l % N] = Transactions[r2 % numTrans][r1 % N];
+            c++;
+        }
+        fout<<P.size();
+        P.erase(P.begin() + temp);
+        fout<<P.size();
+        //system("pause");
+      //  update();
+      if(P.size() > 0)
+        goto A;
+    }
+
+}
+
+// Step 3 : Update Of EP
+void updateEP(){
+
+
+
+    for(int i=1;i<=N;i++){
+        bool isDominating = false;
+        for(int _t = 0;_t<EP.size();_t++){
+            int count = 0;
+
+            for(int j=0;j<EP[_t].size();j++){
+                if(EP[_t][j]==i)count++;
+            }
+
+            if(count >= EP[_t].size()/2){
+                isDominating = true;
+                EP.erase(EP.begin() + _t);
+                _t--;
+            }
+        }
+
+        if(!isDominating){
+            EP.push_back(vector<int>());
+            EP[EP.size()-1].push_back(i);
+        }
+    }
+
+    for(int i=0;i<EP.size();i++){
+        for(int j=0;j<EP[i].size();j++){
+            fout<<EP[i][j]<<" ";
+        }
+        fout<<endl;
+    }
+
+}
+
+// Decomposition Approach to calculate the value of each SubProblem
+double g(population pop, int l){
+    return 0;
+}
+
+// Step 4 : Removes the redundance from EP
+void removeRedundanceFromEP(){
+
+    vector<int> indices;
+
+    for(int i=0;i<EP.size();i++){
+        for(int j=i+1;j<EP.size();j++){
+            if(EP[i].size() == EP[j].size()){
+                bool isRedundant = true;
+                for(int k=0;k<EP[i].size();k++){
+                    if(EP[i][k] != EP[j][k]){
+                        isRedundant = false;
+                        break;
+                    }
+                }
+
+                if(isRedundant){
+                    indices.push_back(j);
+                }
+            }
+        }
+    }
+
+    vector<vector<int> > temp = EP;
+
+    for(int i=0;i<indices.size();i++){
+        EP.erase(EP.begin()+indices[i]-i);
+    }
+
+    int total = 0,same = 0;
+    for(int i=0;i<temp.size();i++){
+        total += temp[i].size();
+    }
+
+    vector<int> v1,v2;
+    for(int i=0;i<temp.size();i++){
+        for(int j=0;j<temp[i].size();j++){
+            v1.push_back(temp[i][j]);
+        }
+    }
+
+    sort(v1.begin(), v1.end());
+
+    for(int i=0;i<EP.size();i++){
+        for(int j=0;j<EP[i].size();j++){
+            v2.push_back(EP[i][j]);
+        }
+    }
+
+    sort(v2.begin(), v2.end());
+
+    for(int i=0,j=0;i<v1.size() && j<v2.size();){
+        if(v1[i]==v2[j]){
+            same++;
+            i++;
+            j++;
+        }
+        else if(v1[i]>v2[j]){
+            j++;
+        }
+        else if(v1[i]<v2[j]){
+            j++;
+        }
+    }
+
+    double difference = ((double)(total - same))/total;
+
+    if(difference < alpha){
+        EP.clear();
+        for(int i=1;i<=N;i++){
+            EP.push_back(vector<int>());
+            EP[EP.size()-1].push_back(i);
+        }
+    }
+
+    for(int i=0;i<EP.size();i++){
+        for(int j=0;j<EP[i].size();j++){
+            fout<<EP[i][j]<<" ";
+        }
+        fout<<endl;
+    }
+
+    currentTrial++;
+
+    if(currentTrial < nTrials){
+        update();
+        removeRedundanceFromEP();
+    }
+}
+
+void removeRedundance(){
+
+    vector<int> indices;
+
+    for(int i=0;i<EP.size();i++){
+        for(int j=i+1;j<EP.size();j++){
+            if(EP[i].size() == EP[j].size()){
+                bool isRedundant = true;
+                for(int k=0;k<EP[i].size();k++){
+                    if(EP[i][k] != EP[j][k]){
+                        isRedundant = false;
+                        break;
+                    }
+                }
+
+                if(isRedundant){
+                    indices.push_back(j);
+                }
+            }
+        }
+    }
+
+    vector<vector<int> > temp = EP;
+
+    for(int i=0;i<indices.size();i++){
+        EP.erase(EP.begin()+indices[i]-i);
+    }
+}
